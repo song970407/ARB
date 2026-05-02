@@ -15,8 +15,9 @@ import pyrallis
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from torch.distributions import Normal, TanhTransform, TransformedDistribution
+
+import wandb
 
 TensorBatch = List[torch.Tensor]
 
@@ -25,16 +26,31 @@ ENVS_WITH_GOAL = ("antmaze", "pen", "door", "hammer", "relocate")
 
 @dataclass
 class TrainConfig:
-    # Experiment
-    device: str = "cuda"
-    env: str = "halfcheetah-medium-expert-v2"  # OpenAI gym environment name
+    device: str = "cuda:3"
+    log_freq: int = 100
+
+    # For Locomotion environments
+    # env: str = "hopper-random-v2"  # OpenAI gym environment name
+    # env: str = "hopper-medium-replay-v2"  # OpenAI gym environment name
+    # env: str = "hopper-medium-v2"  # OpenAI gym environment name
+    env: str = "hopper-medium-expert-v2"  # OpenAI gym environment name
+    # env: str = "halfcheetah-random-v2"  # OpenAI gym environment name
+    # env: str = "halfcheetah-medium-replay-v2"  # OpenAI gym environment name
+    # env: str = "halfcheetah-medium-v2"  # OpenAI gym environment name
+    # env: str = "halfcheetah-medium-expert-v2"  # OpenAI gym environment name
+    # env: str = "walker2d-random-v2"  # OpenAI gym environment name
+    # env: str = "walker2d-medium-replay-v2"  # OpenAI gym environment name
+    # env: str = "walker2d-medium-v2"  # OpenAI gym environment name
+    # env: str = "walker2d-medium-expert-v2"  # OpenAI gym environment name
+
     seed: int = 0  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 0  # Eval environment seed
-    eval_freq: int = int(5e3)  # How often (time steps) we evaluate
-    n_episodes: int = 10  # How many episodes run during evaluation
-    offline_iterations: int = int(1e6)  # Number of offline updates
-    online_iterations: int = int(1e6)  # Number of online updates
-    checkpoints_path: Optional[str] = None  # Save path
+    model_update_freq: int = 1000  # How often (time steps) we update the model
+    eval_freq: int = int(5e4)  # How often (time steps) we evaluate
+    n_episodes: int = 100  # How many episodes run during evaluation
+    # offline_iterations: int = int(1e6)  # Number of offline updates
+    online_iterations: int = int(1e6)
+    checkpoints_path: Optional[str] = "checkpoints/finetune"  # Save path
     load_model: str = ""  # Model load file name, "" doesn't load
     # CQL
     buffer_size: int = 2_000_000  # Replay buffer size
@@ -61,21 +77,131 @@ class TrainConfig:
     orthogonal_init: bool = True  # Orthogonal initialization
     normalize: bool = True  # Normalize states
     normalize_reward: bool = False  # Normalize reward
-    q_n_hidden_layers: int = 2  # Number of hidden layers in Q networks
+    q_n_hidden_layers: int = 3  # Number of hidden layers in Q networks
+    reward_scale: float = 1.0  # Reward scale for normalization
+    reward_bias: float = 0.0  # Reward bias for normalization
+
+    is_sparse_reward = False  # Use sparse reward
+
+    """
+    # Experiment
+    env: str = "antmaze-umaze-v2"  # OpenAI gym environment name
+    # env: str = "antmaze-umaze-diverse-v2"  # OpenAI gym environment name
+    # env: str = "antmaze-medium-play-v2"  # OpenAI gym environment name
+    # env: str = "antmaze-medium-diverse-v2"  # OpenAI gym environment name
+    # env: str = "antmaze-large-play-v2"  # OpenAI gym environment name
+    # env: str = "antmaze-large-diverse-v2"  # OpenAI gym environment name
+    seed: int = 100  # Sets Gym, PyTorch and Numpy seeds
+    eval_seed: int = 100  # Eval environment seed
+    model_update_freq: int = 1000  # How often (time steps) we update the model
+    eval_freq: int = int(5e4)  # How often (time steps) we evaluate
+    n_episodes: int = 100  # How many episodes run during evaluation
+    # offline_iterations: int = int(1e6)  # Number of offline updates
+    online_iterations: int = int(1e6)  # Number of online updates
+    checkpoints_path: Optional[str] = "checkpoints/finetune"  # Save path
+    load_model: str = ""  # Model load file name, "" doesn't load
+    # CQL
+    buffer_size: int = 2_000_000  # Replay buffer size
+    batch_size: int = 256  # Batch size for all networks
+    discount: float = 0.99  # Discount factor
+    alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
+    """
+
+    """
+    # For AntMaze Environments
+    use_automatic_entropy_tuning: bool = True  # Tune entropy
+    backup_entropy: bool = False  # Use backup entropy
+    policy_lr: float = 3e-5  # Policy learning rate
+    qf_lr: float = 3e-4  # Critics learning rate
+    soft_target_update_rate: float = 5e-3  # Target network update rate
+    bc_steps: int = int(0)  # Number of BC steps at start
+    target_update_period: int = 1  # Frequency of target nets updates
+    cql_alpha: float = 5.0  # CQL offline regularization parameter
+    cql_alpha_online: float = 5.0  # CQL online regularization parameter
+    cql_n_actions: int = 10  # Number of sampled actions
+    cql_importance_sample: bool = True  # Use importance sampling
+    cql_lagrange: bool = True  # Use Lagrange version of CQL
+    cql_target_action_gap: float = 0.8  # Action gap
+    cql_temp: float = 1.0  # CQL temperature
+    cql_max_target_backup: bool = True  # Use max target backup
+    cql_clip_diff_min: float = -200  # Q-function lower loss clipping
+    cql_clip_diff_max: float = np.inf  # Q-function upper loss clipping
+    orthogonal_init: bool = True  # Orthogonal initialization
+    normalize: bool = False  # Normalize states
+    normalize_reward: bool = True  # Normalize reward
+    q_n_hidden_layers: int = 5  # Number of hidden layers in Q networks
+    reward_scale: float = 10.0  # Reward scale for normalization
+    reward_bias: float = -5.0  # Reward bias for normalization
+    # Cal-QL
+    is_sparse_reward: bool = True  # Use sparse reward
+    """
+
+    """
+    # For Adroid Environments
+    use_automatic_entropy_tuning: bool = True  # Tune entropy
+    backup_entropy: bool = False  # Use backup entropy
+    policy_lr: float = 1e-4  # Policy learning rate
+    qf_lr: float = 3e-4  # Critics learning rate
+    soft_target_update_rate: float = 5e-3  # Target network update rate
+    bc_steps: int = int(0)  # Number of BC steps at start
+    target_update_period: int = 1  # Frequency of target nets updates
+    cql_alpha: float = 5.0  # CQL offline regularization parameter
+    cql_alpha_online: float = 5.0  # CQL online regularization parameter
+    cql_n_actions: int = 10  # Number of sampled actions
+    cql_importance_sample: bool = True  # Use importance sampling
+    cql_lagrange: bool = False  # Use Lagrange version of CQL
+    cql_target_action_gap: float = 0.8  # Action gap
+    cql_temp: float = 1.0  # CQL temperature
+    cql_max_target_backup: bool = True  # Use max target backup
+    cql_clip_diff_min: float = -200  # Q-function lower loss clipping
+    cql_clip_diff_max: float = np.inf  # Q-function upper loss clipping
+    orthogonal_init: bool = True  # Orthogonal initialization
+    normalize: bool = False  # Normalize states
+    normalize_reward: bool = False  # Normalize reward
+    q_n_hidden_layers: int = 3  # Number of hidden layers in Q networks
     reward_scale: float = 1.0  # Reward scale for normalization
     reward_bias: float = 0.0  # Reward bias for normalization
     # Cal-QL
-    mixing_ratio: float = 0.5  # Data mixing ratio for online tuning
     is_sparse_reward: bool = False  # Use sparse reward
+    """
+    # Replay Buffer
+    # replay_buffer: str = "naive"
+    # replay_buffer: str = "parallel"
+    # replay_buffer: str = "top_n"
+    replay_buffer: str = "adaptive_traj"
+
+    # Parallel Replay Buffer Hyperparameters
+    mixing_ratio: float = 0.5
+    # Top N Replay Buffer Hyperparameters
+    top_n: int = 50000
+    # Adaptive Replay Buffer Hyperparameters
+    weight_update_freq: int = 1000
+
+    # weight_alpha: float = 0.2
+    # weight_alpha: float = 0.5
+    # weight_alpha: float = 1.0
+    # weight_alpha: float = 2.0
+    weight_alpha: float = 5.0
+    log_weight_min: float = -12.0
+    log_weight_max: float = 7.0
+
     # Wandb logging
-    project: str = "CORL"
+    project: str = "ARB"
     group: str = "Cal-QL-D4RL"
     name: str = "Cal-QL"
 
     def __post_init__(self):
-        self.name = f"{self.name}-{self.env}-{str(uuid.uuid4())[:8]}"
+        self.load_model = (
+            f"checkpoints/pretrain/{self.name}-{self.env}-{self.seed}/model.pt"
+        )
+        # self.name = f"{self.name}-{self.env}-{self.replay_buffer}-{self.seed}-{str(uuid.uuid4())[:8]}"
+        if self.replay_buffer == "adaptive" or self.replay_buffer == "adaptive_traj":
+            self.name = f"{self.name}-{self.env}-{self.seed}-{self.replay_buffer}-{self.weight_alpha}-{str(uuid.uuid4())[:8]}"
+        else:
+            self.name = f"{self.name}-{self.env}-{self.seed}-{self.replay_buffer}-{str(uuid.uuid4())[:8]}"
         if self.checkpoints_path is not None:
             self.checkpoints_path = os.path.join(self.checkpoints_path, self.name)
+        self.name = f"finetune-{self.name}"
 
 
 def soft_update(target: nn.Module, source: nn.Module, tau: float):
@@ -133,7 +259,9 @@ class ReplayBuffer:
         self._actions = torch.zeros(
             (buffer_size, action_dim), dtype=torch.float32, device=device
         )
-        self._rewards = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
+        self._rewards = torch.zeros(
+            (buffer_size, 1), dtype=torch.float32, device=device
+        )
         self._next_states = torch.zeros(
             (buffer_size, state_dim), dtype=torch.float32, device=device
         )
@@ -161,9 +289,12 @@ class ReplayBuffer:
         self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
         self._next_states[:n_transitions] = self._to_tensor(data["next_observations"])
         self._dones[:n_transitions] = self._to_tensor(data["terminals"][..., None])
-        self._mc_returns[:n_transitions] = self._to_tensor(data["mc_returns"][..., None])
+        self._mc_returns[:n_transitions] = self._to_tensor(
+            data["mc_returns"][..., None]
+        )
         self._size += n_transitions
         self._pointer = min(self._size, n_transitions)
+        self._offline_size = n_transitions
 
         print(f"Dataset size: {n_transitions}")
 
@@ -175,7 +306,7 @@ class ReplayBuffer:
         next_states = self._next_states[indices]
         dones = self._dones[indices]
         mc_returns = self._mc_returns[indices]
-        return [states, actions, rewards, next_states, dones, mc_returns]
+        return [states, actions, rewards, next_states, dones, mc_returns], indices
 
     def add_transition(
         self,
@@ -195,6 +326,343 @@ class ReplayBuffer:
 
         self._pointer = (self._pointer + 1) % self._buffer_size
         self._size = min(self._size + 1, self._buffer_size)
+
+    def switch_online(self):
+        pass
+
+    def update_sample_weight(self, actor):
+        pass
+
+
+class ReplayBufferParallel(ReplayBuffer):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        buffer_size: int,
+        mixing_ratio: float,
+        device: str = "cpu",
+    ):
+        self._state_dim = state_dim
+        self._action_dim = action_dim
+        self._buffer_size = buffer_size
+        self._mixing_ratio = mixing_ratio
+        self._offline_buffer = ReplayBuffer(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            buffer_size=buffer_size,
+            device=device,
+        )
+        self._online_buffer = ReplayBuffer(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            buffer_size=buffer_size,
+            device=device,
+        )
+        self._device = device
+
+    # Loads data in d4rl format, i.e. from Dict[str, np.array].
+    def load_d4rl_dataset(self, data: Dict[str, np.ndarray]):
+        self._offline_buffer.load_d4rl_dataset(data)
+        self._offline_size = self._offline_buffer._size
+
+    def sample(self, batch_size: int) -> TensorBatch:
+        if self._online_buffer._size == 0:  # only offline data
+            return self._offline_buffer.sample(batch_size)
+        else:
+            offline_batch_size = int(batch_size * self._mixing_ratio)
+            online_batch_size = batch_size - offline_batch_size
+            offline_batch, offline_indices = self._offline_buffer.sample(
+                offline_batch_size
+            )
+            online_batch, online_indices = self._online_buffer.sample(online_batch_size)
+            online_indices = online_indices + self._offline_size
+            states = torch.cat([offline_batch[0], online_batch[0]], dim=0)
+            actions = torch.cat([offline_batch[1], online_batch[1]], dim=0)
+            rewards = torch.cat([offline_batch[2], online_batch[2]], dim=0)
+            next_states = torch.cat([offline_batch[3], online_batch[3]], dim=0)
+            dones = torch.cat([offline_batch[4], online_batch[4]], dim=0)
+            mc_returns = torch.cat([offline_batch[5], online_batch[5]], dim=0)
+            indices = np.concatenate([offline_indices, online_indices])
+            return [states, actions, rewards, next_states, dones, mc_returns], indices
+
+    def add_transition(
+        self,
+        state: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ):
+        self._online_buffer.add_transition(state, action, reward, next_state, done)
+
+
+class ReplayBufferTopN(ReplayBuffer):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        buffer_size: int,
+        top_n: int,
+        device: str = "cpu",
+    ):
+        super().__init__(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            buffer_size=buffer_size,
+            device=device,
+        )
+        self._state_dim = state_dim
+        self._action_dim = action_dim
+        self._top_n = top_n
+        self._top_indices = []
+
+    def switch_online(self):  # keep only the top n episodes
+        episode_start_idx_list = [0]
+        states = self._states.cpu().numpy()
+        next_states = self._next_states.cpu().numpy()
+        dones = self._dones.cpu().numpy()
+        for i in range(1, self._size):
+            if np.linalg.norm(next_states[i - 1] - states[i]) > 1e-6 or dones[i - 1]:
+                episode_start_idx_list.append(i)
+        episode_start_idx_list.append(self._size)  # Add the last index
+
+        sum_reward_list = []
+        for i in range(len(episode_start_idx_list) - 1):
+            start_idx = episode_start_idx_list[i]
+            end_idx = episode_start_idx_list[i + 1]
+            sum_reward_list.append(self._rewards[start_idx:end_idx].sum().item())
+        sorted_idx = np.argsort(sum_reward_list)[::-1][: self._top_n]
+        idx = []
+        number_of_transitions = 0
+        for i in sorted_idx:
+            if number_of_transitions > self._top_n:
+                break
+            number_of_transitions += (
+                episode_start_idx_list[i + 1] - episode_start_idx_list[i]
+            )
+            idx += list(range(episode_start_idx_list[i], episode_start_idx_list[i + 1]))
+        states = self._states[idx]
+        actions = self._actions[idx]
+        rewards = self._rewards[idx]
+        next_states = self._next_states[idx]
+        dones = self._dones[idx]
+        print(f"Number of total episodes: {len(episode_start_idx_list) - 1}")
+        print(f"Number of episodes remained: {i}")
+        self._states = torch.zeros(
+            (self._buffer_size, self._state_dim),
+            dtype=torch.float32,
+            device=self._device,
+        )
+        self._actions = torch.zeros(
+            (self._buffer_size, self._action_dim),
+            dtype=torch.float32,
+            device=self._device,
+        )
+        self._rewards = torch.zeros(
+            (self._buffer_size, 1), dtype=torch.float32, device=self._device
+        )
+        self._next_states = torch.zeros(
+            (self._buffer_size, self._state_dim),
+            dtype=torch.float32,
+            device=self._device,
+        )
+        self._dones = torch.zeros(
+            (self._buffer_size, 1), dtype=torch.float32, device=self._device
+        )
+        self._states[: len(idx)] = states
+        self._actions[: len(idx)] = actions
+        self._rewards[: len(idx)] = rewards
+        self._next_states[: len(idx)] = next_states
+        self._dones[: len(idx)] = dones
+        self._pointer = len(idx) % self._buffer_size
+        self._size = min(len(idx), self._buffer_size)
+        self._offline_size = len(idx)
+
+
+class ReplayBufferAdaptive(ReplayBuffer):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        buffer_size: int,
+        weight_alpha: float,
+        log_weight_min: float,
+        log_weight_max: float,
+        device: str = "cpu",
+    ):
+        super().__init__(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            buffer_size=buffer_size,
+            device=device,
+        )
+        self._action_dim = action_dim
+        self._weight_alpha = weight_alpha
+        self._log_weight_min = log_weight_min
+        self._log_weight_max = log_weight_max
+        self._weight = None
+
+    @torch.no_grad()
+    def update_sample_weight(self, actor):
+        self._weight = np.zeros(self._buffer_size, dtype=np.float32)
+        actor.eval().cpu()
+        # Update weights of offline data
+        states = self._states[: self._size].detach().cpu()
+        actions = self._actions[: self._size].detach().cpu()
+        log_prob = torch.clamp(
+            actor.log_prob_standard(states, actions) / self._action_dim,
+            min=self._log_weight_min,
+            max=self._log_weight_max,
+        )
+        log_prob = log_prob - torch.max(log_prob)  # for numerical stability
+        self._weight[: self._size] = torch.exp(log_prob / self._weight_alpha).numpy()
+        actor.train().to(self._device)
+
+    def sample(self, batch_size: int) -> TensorBatch:
+        if self._weight is None:
+            indices = np.random.randint(0, self._size, size=batch_size)
+        else:
+            indices = np.random.choice(
+                self._size,
+                size=batch_size,
+                # replace=False,
+                p=self._weight[: self._size] / np.sum(self._weight[: self._size]),
+            )
+        states = self._states[indices]
+        actions = self._actions[indices]
+        rewards = self._rewards[indices]
+        next_states = self._next_states[indices]
+        dones = self._dones[indices]
+        mc_returns = self._mc_returns[indices]
+        return [states, actions, rewards, next_states, dones, mc_returns], indices
+
+    def add_transition(
+        self,
+        state: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ):
+        # Use this method to add new data into the replay buffer during fine-tuning.
+        self._states[self._pointer] = self._to_tensor(state)
+        self._actions[self._pointer] = self._to_tensor(action)
+        self._rewards[self._pointer] = self._to_tensor(reward)
+        self._next_states[self._pointer] = self._to_tensor(next_state)
+        self._dones[self._pointer] = self._to_tensor(done)
+        self._mc_returns[self._pointer] = 0.0
+        self._weight[self._pointer] = 1.0
+
+        self._pointer = (self._pointer + 1) % self._buffer_size
+        self._size = min(self._size + 1, self._buffer_size)
+
+    def switch_online(self):
+        self._weight = np.zeros(self._buffer_size, dtype=np.float32)
+
+
+class ReplayBufferAdaptiveTrajectory(ReplayBuffer):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        buffer_size: int,
+        weight_alpha: float,
+        log_weight_min: float,
+        log_weight_max: float,
+        device: str = "cpu",
+    ):
+        super().__init__(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            buffer_size=buffer_size,
+            device=device,
+        )
+        self._action_dim = action_dim
+        self._weight_alpha = weight_alpha
+        self._log_weight_min = log_weight_min
+        self._log_weight_max = log_weight_max
+        self._weight = None
+
+    @torch.no_grad()
+    def update_sample_weight(self, actor):
+        episode_start_idx_list = [0]
+        states = self._states[: self._size].cpu().numpy()
+        next_states = self._next_states[: self._size].cpu().numpy()
+        dones = self._dones[: self._size].cpu().numpy()
+        for i in range(1, self._size):
+            # if np.linalg.norm(next_states[i - 1] - states[i]) > 1e-6 or dones[i - 1]:
+            # if dones[i - 1]:
+            if np.linalg.norm(next_states[i - 1] - states[i]) > 1e-6 or dones[i - 1]:
+                episode_start_idx_list.append(i)
+        episode_start_idx_list.append(self._size)  # Add the last index
+
+        self._weight = np.zeros(self._buffer_size, dtype=np.float32)
+        actor.eval().cpu()
+
+        states = self._states[: self._size].detach().cpu()
+        actions = self._actions[: self._size].detach().cpu()
+        log_prob = torch.clamp(
+            actor.log_prob_standard(states, actions) / self._action_dim,
+            min=self._log_weight_min,
+            max=self._log_weight_max,
+        )
+        log_prob = log_prob - torch.max(log_prob)
+        episode_length_list = []
+        episode_log_prob_list = []
+        for i in range(len(episode_start_idx_list) - 1):
+            start_idx = episode_start_idx_list[i]
+            end_idx = episode_start_idx_list[i + 1]
+            log_prob[start_idx:end_idx] = log_prob[start_idx:end_idx].mean().item()
+            episode_length_list.append(end_idx - start_idx)
+            episode_log_prob_list.append(log_prob[start_idx:end_idx].mean().item())
+        print("First 10 with Length")
+        print(episode_log_prob_list[:10], episode_length_list[:10])
+        print("Last 10 with Length")
+        print(episode_log_prob_list[-10:], episode_length_list[-10:])
+        self._weight[: self._size] = torch.exp(log_prob / self._weight_alpha).numpy()
+        actor.train().to(self._device)
+
+    def sample(self, batch_size: int) -> TensorBatch:
+        if self._weight is None:
+            indices = np.random.randint(0, self._size, size=batch_size)
+        else:
+            indices = np.random.choice(
+                self._size,
+                size=batch_size,
+                # replace=False,
+                p=self._weight[: self._size] / np.sum(self._weight[: self._size]),
+            )
+        states = self._states[indices]
+        actions = self._actions[indices]
+        rewards = self._rewards[indices]
+        next_states = self._next_states[indices]
+        dones = self._dones[indices]
+        mc_returns = self._mc_returns[indices]
+        return [states, actions, rewards, next_states, dones, mc_returns], indices
+
+    def add_transition(
+        self,
+        state: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ):
+        # Use this method to add new data into the replay buffer during fine-tuning.
+        self._states[self._pointer] = self._to_tensor(state)
+        self._actions[self._pointer] = self._to_tensor(action)
+        self._rewards[self._pointer] = self._to_tensor(reward)
+        self._next_states[self._pointer] = self._to_tensor(next_state)
+        self._dones[self._pointer] = self._to_tensor(done)
+        self._mc_returns[self._pointer] = 0.0
+        self._weight[self._pointer] = 1.0
+
+        self._pointer = (self._pointer + 1) % self._buffer_size
+        self._size = min(self._size + 1, self._buffer_size)
+
+    def switch_online(self):
+        self._weight = np.zeros(self._buffer_size, dtype=np.float32)
 
 
 def set_env_seed(env: Optional[gym.Env], seed: int):
@@ -222,7 +690,7 @@ def wandb_init(config: dict) -> None:
         name=config["name"],
         id=str(uuid.uuid4()),
     )
-    wandb.run.save()
+    # wandb.run.save()
 
 
 def is_goal_reached(reward: float, info: Dict) -> bool:
@@ -299,8 +767,7 @@ def get_return_to_go(dataset: Dict, env: gym.Env, config: TrainConfig) -> np.nda
             prev_return = 0
             if (
                 config.is_sparse_reward
-                and r
-                == env.ref_min_score * config.reward_scale + config.reward_bias
+                and r == env.ref_min_score * config.reward_scale + config.reward_bias
             ):
                 discounted_returns = [r / (1 - config.discount)] * ep_len
             else:
@@ -389,6 +856,16 @@ class ReparameterizedTanhGaussian(nn.Module):
             )
         return torch.sum(action_distribution.log_prob(sample), dim=-1)
 
+    def log_prob_standard(
+        self, mean: torch.Tensor, log_std: torch.Tensor, sample: torch.Tensor
+    ) -> torch.Tensor:
+        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+        std = torch.exp(log_std)
+        if not self.no_tanh:
+            sample = torch.atanh(torch.clamp(sample, -1 + 1e-6, 1 - 1e-6))
+        action_distribution = Normal(mean, std)
+        return torch.sum(action_distribution.log_prob(sample) + log_std, dim=-1)
+
     def forward(
         self,
         mean: torch.Tensor,
@@ -452,7 +929,7 @@ class TanhGaussianPolicy(nn.Module):
         self.log_std_offset = Scalar(log_std_offset)
         self.tanh_gaussian = ReparameterizedTanhGaussian(no_tanh=no_tanh)
 
-    def log_prob(
+    """def log_prob(
         self, observations: torch.Tensor, actions: torch.Tensor
     ) -> torch.Tensor:
         if actions.ndim == 3:
@@ -461,6 +938,32 @@ class TanhGaussianPolicy(nn.Module):
         mean, log_std = torch.split(base_network_output, self.action_dim, dim=-1)
         log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
         _, log_probs = self.tanh_gaussian(mean, log_std, False)
+        return log_probs"""
+
+    def log_prob(
+        self, observations: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
+        if actions.ndim == 3:
+            observations = extend_and_repeat(observations, 1, actions.shape[1])
+        base_network_output = self.base_network(observations)
+        mean, log_std = torch.split(base_network_output, self.action_dim, dim=-1)
+        log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
+        log_probs = self.tanh_gaussian.log_prob(
+            mean, log_std, actions / self.max_action
+        )
+        return log_probs
+
+    def log_prob_standard(
+        self, observations: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
+        if actions.ndim == 3:
+            observations = extend_and_repeat(observations, 1, actions.shape[1])
+        base_network_output = self.base_network(observations)
+        mean, log_std = torch.split(base_network_output, self.action_dim, dim=-1)
+        log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
+        log_probs = self.tanh_gaussian.log_prob_standard(
+            mean, log_std, actions / self.max_action
+        )
         return log_probs
 
     def forward(
@@ -513,7 +1016,9 @@ class FullyConnectedQFunction(nn.Module):
         else:
             init_module_weights(self.network[-1], False)
 
-    def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, observations: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
         multiple_actions = False
         batch_size = observations.shape[0]
         if actions.ndim == 3 and observations.ndim == 2:
@@ -986,8 +1491,8 @@ def train(config: TrainConfig):
     eval_env = gym.make(config.env)
 
     is_env_with_goal = config.env.startswith(ENVS_WITH_GOAL)
-    batch_size_offline = int(config.batch_size * config.mixing_ratio)
-    batch_size_online = config.batch_size - batch_size_offline
+    # batch_size_offline = int(config.batch_size * config.mixing_ratio)
+    # batch_size_online = config.batch_size - batch_size_offline
 
     max_steps = env._max_episode_steps
 
@@ -1021,7 +1526,51 @@ def train(config: TrainConfig):
     )
     env = wrap_env(env, state_mean=state_mean, state_std=state_std)
     eval_env = wrap_env(eval_env, state_mean=state_mean, state_std=state_std)
-    offline_buffer = ReplayBuffer(
+
+    if config.replay_buffer == "naive":
+        buffer = ReplayBuffer(state_dim, action_dim, config.buffer_size, config.device)
+    elif config.replay_buffer == "parallel":
+        buffer = ReplayBufferParallel(
+            state_dim,
+            action_dim,
+            config.buffer_size,
+            config.mixing_ratio,
+            config.device,
+        )
+    elif config.replay_buffer == "top_n":
+        buffer = ReplayBufferTopN(
+            state_dim,
+            action_dim,
+            config.buffer_size,
+            config.top_n,
+            config.device,
+        )
+    elif config.replay_buffer == "adaptive":
+        buffer = ReplayBufferAdaptive(
+            state_dim,
+            action_dim,
+            config.buffer_size,
+            config.weight_alpha,
+            config.log_weight_min,
+            config.log_weight_max,
+            config.device,
+        )
+    elif config.replay_buffer == "adaptive_traj":
+        buffer = ReplayBufferAdaptiveTrajectory(
+            state_dim,
+            action_dim,
+            config.buffer_size,
+            config.weight_alpha,
+            config.log_weight_min,
+            config.log_weight_max,
+            config.device,
+        )
+
+    else:
+        raise ValueError(f"Unknown replay buffer type: {config.replay_buffer}")
+
+    buffer.load_d4rl_dataset(dataset)
+    """offline_buffer = ReplayBuffer(
         state_dim,
         action_dim,
         config.buffer_size,
@@ -1032,8 +1581,8 @@ def train(config: TrainConfig):
         action_dim,
         config.buffer_size,
         config.device,
-    )
-    offline_buffer.load_d4rl_dataset(dataset)
+    )"""
+    # offline_buffer.load_d4rl_dataset(dataset)
 
     max_action = float(env.action_space.high[0])
 
@@ -1110,7 +1659,7 @@ def train(config: TrainConfig):
 
     if config.load_model != "":
         policy_file = Path(config.load_model)
-        trainer.load_state_dict(torch.load(policy_file))
+        trainer.load_state_dict(torch.load(policy_file, map_location=config.device))
         actor = trainer.actor
 
     wandb_init(asdict(config))
@@ -1124,77 +1673,81 @@ def train(config: TrainConfig):
     eval_successes = []
     train_successes = []
 
-    print("Offline pretraining")
-    for t in range(int(config.offline_iterations) + int(config.online_iterations)):
-        if t == config.offline_iterations:
-            print("Online tuning")
-            trainer.switch_calibration()
-            trainer.cql_alpha = config.cql_alpha_online
+    # print("Offline pretraining")
+    print("Online tuning")
+    trainer.switch_calibration()
+    trainer.cql_alpha = config.cql_alpha_online
+    buffer.switch_online()  # Switch to online mode
+    for t in range(int(config.online_iterations)):
         online_log = {}
-        if t >= config.offline_iterations:
-            episode_step += 1
-            action, _ = actor(
-                torch.tensor(
-                    state.reshape(1, -1),
-                    device=config.device,
-                    dtype=torch.float32,
+
+        if t % config.model_update_freq == 0:
+            for _ in range(config.model_update_freq):
+                episode_step += 1
+                action, _ = actor(
+                    torch.tensor(
+                        state.reshape(1, -1),
+                        device=config.device,
+                        dtype=torch.float32,
+                    )
                 )
-            )
-            action = action.cpu().data.numpy().flatten()
-            next_state, reward, done, env_infos = env.step(action)
+                action = action.cpu().data.numpy().flatten()
+                next_state, reward, done, env_infos = env.step(action)
 
-            if not goal_achieved:
-                goal_achieved = is_goal_reached(reward, env_infos)
-            episode_return += reward
-            real_done = False  # Episode can timeout which is different from done
-            if done and episode_step < max_steps:
-                real_done = True
+                if not goal_achieved:
+                    goal_achieved = is_goal_reached(reward, env_infos)
+                episode_return += reward
+                real_done = False  # Episode can timeout which is different from done
+                if done and episode_step < max_steps:
+                    real_done = True
 
-            if config.normalize_reward:
-                reward = modify_reward_online(
-                    reward,
-                    config.env,
-                    reward_scale=config.reward_scale,
-                    reward_bias=config.reward_bias,
-                    **reward_mod_dict,
-                )
-            online_buffer.add_transition(state, action, reward, next_state, real_done)
-            state = next_state
+                if config.normalize_reward:
+                    reward = modify_reward_online(
+                        reward,
+                        config.env,
+                        reward_scale=config.reward_scale,
+                        reward_bias=config.reward_bias,
+                        **reward_mod_dict,
+                    )
 
-            if done:
-                state, done = env.reset(), False
-                # Valid only for envs with goal, e.g. AntMaze, Adroit
-                if is_env_with_goal:
-                    train_successes.append(goal_achieved)
-                    online_log["train/regret"] = np.mean(1 - np.array(train_successes))
-                    online_log["train/is_success"] = float(goal_achieved)
-                online_log["train/episode_return"] = episode_return
-                normalized_return = eval_env.get_normalized_score(episode_return)
-                online_log["train/d4rl_normalized_episode_return"] = (
-                    normalized_return * 100.0
-                )
-                online_log["train/episode_length"] = episode_step
-                episode_return = 0
-                episode_step = 0
-                goal_achieved = False
+                buffer.add_transition(state, action, reward, next_state, real_done)
 
-        if t < config.offline_iterations:
-            batch = offline_buffer.sample(config.batch_size)
-            batch = [b.to(config.device) for b in batch]
-        else:
-            offline_batch = offline_buffer.sample(batch_size_offline)
-            online_batch = online_buffer.sample(batch_size_online)
-            batch = [
-                torch.vstack(tuple(b)).to(config.device)
-                for b in zip(offline_batch, online_batch)
-            ]
+                # online_buffer.add_transition(state, action, reward, next_state, real_done)
+
+                state = next_state
+
+                if done:
+                    state, done = env.reset(), False
+                    # Valid only for envs with goal, e.g. AntMaze, Adroit
+                    if is_env_with_goal:
+                        train_successes.append(goal_achieved)
+                        online_log["train/regret"] = np.mean(
+                            1 - np.array(train_successes)
+                        )
+                        online_log["train/is_success"] = float(goal_achieved)
+                    online_log["train/episode_return"] = episode_return
+                    normalized_return = eval_env.get_normalized_score(episode_return)
+                    online_log["train/d4rl_normalized_episode_return"] = (
+                        normalized_return * 100.0
+                    )
+                    online_log["train/episode_length"] = episode_step
+                    episode_return = 0
+                    episode_step = 0
+                    goal_achieved = False
+
+        if t % config.weight_update_freq == 0:
+            buffer.update_sample_weight(trainer.actor)
+
+        batch, indices = buffer.sample(config.batch_size)
+        batch = [b.to(config.device) for b in batch]
 
         log_dict = trainer.train(batch)
-        log_dict["offline_iter" if t < config.offline_iterations else "online_iter"] = (
-            t if t < config.offline_iterations else t - config.offline_iterations
-        )
+        log_dict["online_iter"] = t
+        is_online_data = indices >= buffer._offline_size
+        log_dict["online_data_ratio"] = np.mean(is_online_data)
         log_dict.update(online_log)
-        wandb.log(log_dict, step=trainer.total_it)
+        if (t + 1) % config.log_freq == 0:
+            wandb.log(log_dict, step=trainer.total_it)
         # Evaluate episode
         if (t + 1) % config.eval_freq == 0:
             print(f"Time steps: {t + 1}")
@@ -1209,7 +1762,7 @@ def train(config: TrainConfig):
             eval_log = {}
             normalized = eval_env.get_normalized_score(np.mean(eval_scores))
             # Valid only for envs with goal, e.g. AntMaze, Adroit
-            if t >= config.offline_iterations and is_env_with_goal:
+            if is_env_with_goal:
                 eval_successes.append(success_rate)
                 eval_log["eval/regret"] = np.mean(1 - np.array(train_successes))
                 eval_log["eval/success_rate"] = success_rate
@@ -1222,12 +1775,16 @@ def train(config: TrainConfig):
                 f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}"
             )
             print("---------------------------------------")
-            if config.checkpoints_path:
+            """if config.checkpoints_path:
                 torch.save(
                     trainer.state_dict(),
                     os.path.join(config.checkpoints_path, f"checkpoint_{t}.pt"),
-                )
+                )"""
             wandb.log(eval_log, step=trainer.total_it)
+    if config.checkpoints_path:
+        torch.save(
+            trainer.state_dict(), os.path.join(config.checkpoints_path, "model.pt")
+        )
 
 
 if __name__ == "__main__":
